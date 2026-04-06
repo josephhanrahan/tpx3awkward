@@ -240,6 +240,8 @@ def convert_tpx3_files_parallel(
         else:
             max_workers = min(num_workers, len(fpaths))  # Don't use more workers than files
 
+        max_workers = max(max_workers, 1)
+
         # Load the mask once
         trim_mask = trim_corr_file(trim_correct)
 
