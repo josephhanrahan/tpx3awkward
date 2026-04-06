@@ -209,9 +209,10 @@ def convert_tpx3_files(
 def convert_tpx3_files_parallel(
     fpaths: list[str] | list[Path],
     extension=f_type.PARQUET,
+    output_dir: str | Path | None = None,
     num_workers: int | None = None,
     trim_correct: str | Path | None = None,
-    energy_calib_fpath: str | Path | None = None,
+    energy_calib: np.ndarray | str | Path | None = None,
     **kwargs,
 ):
     """
@@ -243,10 +244,9 @@ def convert_tpx3_files_parallel(
         trim_mask = trim_corr_file(trim_correct)
 
         # Load energy estimation params
-        energy_calib = None
-        if energy_calib_fpath is not None:
+        if isinstance(energy_calib, (str, Path)):
             try:
-                energy_calib = np.load(energy_calib_fpath)
+                energy_calib = np.load(energy_calib)
             except Exception as e:
                 print(f"Failed to load calibration: {e}")
 
@@ -254,6 +254,7 @@ def convert_tpx3_files_parallel(
         worker_func = partial(
             convert_tpx3_file,
             extension=extension,
+            output_dir=output_dir,
             trim_correct=trim_mask,
             energy_calib=energy_calib,
             **kwargs,
