@@ -90,6 +90,8 @@ def convert_tpx3_file(
             cent_out_fpath = converted_path(tpx3_fpath, extension=extension, cent=True)
 
             if output_dir:
+                output_dir = Path(output_dir)
+                out_fpath = output_dir / out_fpath.name
                 cent_out_fpath = output_dir / cent_out_fpath.name
 
             try:
@@ -159,9 +161,10 @@ def convert_tpx3_file(
 def convert_tpx3_files(
     fpaths: list[str] | list[Path],
     extension: str = f_type.PARQUET,
+    output_dir: str | Path | None = None,
     trim_correct: str | Path | None = None,
     print_details: bool = True,
-    energy_calib_fpath: str | Path | None = None,
+    energy_calib: np.ndarray | str | Path | None = None,
     **kwargs,
 ):
     """
@@ -184,18 +187,18 @@ def convert_tpx3_files(
     trim_mask = trim_corr_file(trim_correct)
 
     # Load energy estimation params
-    energy_calib = None
-    if energy_calib_fpath is not None:
+    if isinstance(energy_calib, (str, Path)):
         try:
-            energy_calib = np.load(energy_calib_fpath)
-        except Exception as e:
-            print(f"Failed to load calibration: {e}")
+            energy_calib = np.load(energy_calib)
+        except Exception:
+            print("Failed to load calibration: {e}")
 
     # Process files sequentially with tqdm progress bar
     for file in tqdm(fpaths, desc="Processing files"):
         convert_tpx3_file(
             file,
             extension=extension,
+            output_dir=output_dir,
             trim_correct=trim_mask,
             print_details=print_details,
             energy_calib=energy_calib,
@@ -206,9 +209,10 @@ def convert_tpx3_files(
 def convert_tpx3_files_parallel(
     fpaths: list[str] | list[Path],
     extension=f_type.PARQUET,
+    output_dir: str | Path | None = None,
     num_workers: int | None = None,
     trim_correct: str | Path | None = None,
-    energy_calib_fpath: str | Path | None = None,
+    energy_calib: np.ndarray | str | Path | None = None,
     **kwargs,
 ):
     """
@@ -236,14 +240,15 @@ def convert_tpx3_files_parallel(
         else:
             max_workers = min(num_workers, len(fpaths))  # Don't use more workers than files
 
+        max_workers = max(max_workers, 1)
+
         # Load the mask once
         trim_mask = trim_corr_file(trim_correct)
 
         # Load energy estimation params
-        energy_calib = None
-        if energy_calib_fpath is not None:
+        if isinstance(energy_calib, (str, Path)):
             try:
-                energy_calib = np.load(energy_calib_fpath)
+                energy_calib = np.load(energy_calib)
             except Exception as e:
                 print(f"Failed to load calibration: {e}")
 
@@ -251,6 +256,7 @@ def convert_tpx3_files_parallel(
         worker_func = partial(
             convert_tpx3_file,
             extension=extension,
+            output_dir=output_dir,
             trim_correct=trim_mask,
             energy_calib=energy_calib,
             **kwargs,
