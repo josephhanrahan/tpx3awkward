@@ -79,83 +79,71 @@ def convert_tpx3_file(
     else:
         logger.setLevel(logging.WARNING)
 
-    if isinstance(tpx3_fpath, str):
-        tpx3_fpath = Path(tpx3_fpath)
+    tpx3_fpath = Path(tpx3_fpath)
 
-    include_energy = isinstance(energy_calib, np.ndarray)
+    if not tpx3_fpath.exists():
+        raise FileNotFoundError(f"{tpx3_fpath} does not exist")
+    if tpx3_fpath.suffix != ".tpx3":
+        raise ValueError(f"{tpx3_fpath} is not a .tpx3 file")
 
-    if tpx3_fpath.exists():
-        if tpx3_fpath.suffix == ".tpx3":
-            out_fpath = converted_path(tpx3_fpath, extension=extension, cent=False)
-            cent_out_fpath = converted_path(tpx3_fpath, extension=extension, cent=True)
+    out_fpath = converted_path(tpx3_fpath, extension=extension, cent=False)
+    cent_out_fpath = converted_path(tpx3_fpath, extension=extension, cent=True)
 
-            if output_dir:
-                output_dir = Path(output_dir)
-                out_fpath = output_dir / out_fpath.name
-                cent_out_fpath = output_dir / cent_out_fpath.name
+    if output_dir:
+        output_dir = Path(output_dir)
+        out_fpath = output_dir / out_fpath.name
+        cent_out_fpath = output_dir / cent_out_fpath.name
 
-            try:
-                tpx3_fpath_size = tpx3_fpath.stat().st_size  # Get file size
-                have_df = out_fpath.exists()  # Check if dfname exists
-                have_dfc = cent_out_fpath.exists()  # Check if dfcname exists
+    have_df = out_fpath.exists()  # Check if dfname exists
+    have_dfc = cent_out_fpath.exists()  # Check if dfcname exists
 
-                if have_df and have_dfc and not overwrite:
-                    print(f"-> {tpx3_fpath.name} already processed, skipping.")
-                    return False
-
-                logger.info(f"-> Processing {tpx3_fpath.name}, size: {tpx3_fpath_size / (1024 * 1024):.1f} MB")
-
-                if tpx3_fpath_size == 0:
-                    num_events = 0
-                else:
-                    df = drop_zero_tot(tpx_to_raw_df(tpx3_fpath))
-                    num_events = df.shape[0]
-
-                if num_events > 0:
-                    logger.info(f"Loading {tpx3_fpath.name} complete. {num_events} events found.")
-
-                    cdf = cluster_raw_df(
-                        df,
-                        tw,
-                        radius,
-                        energy_calib=energy_calib,
-                        timewalk_correct=timewalk_correct,
-                        trim_correct=trim_correct,
-                    )
-                    # maybe we should put this somewhere else...
-                    cdf.loc[cdf["xc"] >= 255.5, "xc"] += 2
-                    cdf.loc[cdf["yc"] >= 255.5, "yc"] += 2
-
-                    logger.info(f"Clustering and centroiding complete. Saving to {cent_out_fpath.name}...")
-
-                    save_df(cdf, cent_out_fpath)
-                    logger.info(f"Saving {cent_out_fpath.name} complete. Checking file existence...")
-
-                    if cent_out_fpath.exists():
-                        logger.info(f"Confirmed {cent_out_fpath.name} exists!")
-                        to_return = True
-                    else:
-                        logger.info(f"WARNING: {cent_out_fpath.name} doesn't exist but it should?!")
-                        to_return = False
-
-                    logger.info("Moving onto next file...")
-                    del df, cdf
-                    gc.collect()
-                    return to_return
-
-                logger.info("No events found! Saving empty dataframes.")
-                save_df(empty_raw_df(include_energy=include_energy), out_fpath)
-                save_df(empty_cent_df(include_energy=include_energy), cent_out_fpath)
-                gc.collect()
-            except Exception as e:
-                logger.info(f"Conversion of {tpx3_fpath.name} failed due to {e.__class__.__name__}: {e}, moving on.")
-                return False
-
-            return True
-        logger.info("File was not a .tpx3 file. Moving onto next file.")
+    if have_df and have_dfc and not overwrite:
+        print(f"-> {tpx3_fpath.name} already processed, skipping.")
         return False
-    logger.info("File does not exist. Moving onto next file.")
-    return False
+
+    logger.info(f"-> Processing {tpx3_fpath.name}, size: {tpx3_fpath.stat().st_size / (1024 * 1024):.1f} MB")
+
+    df = drop_zero_tot(tpx_to_raw_df(tpx3_fpath))
+    num_events = df.shape[0]
+
+    if num_events == 0:
+        logger.info("No events found! Saving empty dataframes.")
+        include_energy = isinstance(energy_calib, np.ndarray)
+        save_df(empty_raw_df(include_energy=include_energy), out_fpath)
+        save_df(empty_cent_df(include_energy=include_energy), cent_out_fpath)
+        gc.collect()
+        return True
+
+    logger.info(f"Loading {tpx3_fpath.name} complete. {num_events} events found.")
+
+    cdf = cluster_raw_df(
+        df,
+        tw,
+        radius,
+        energy_calib=energy_calib,
+        timewalk_correct=timewalk_correct,
+        trim_correct=trim_correct,
+    )
+    # maybe we should put this somewhere else...
+    cdf.loc[cdf["xc"] >= 255.5, "xc"] += 2
+    cdf.loc[cdf["yc"] >= 255.5, "yc"] += 2
+
+    logger.info(f"Clustering and centroiding complete. Saving to {cent_out_fpath.name}...")
+
+    save_df(cdf, cent_out_fpath)
+    logger.info(f"Saving {cent_out_fpath.name} complete. Checking file existence...")
+
+    if cent_out_fpath.exists():
+        logger.info(f"Confirmed {cent_out_fpath.name} exists!")
+        to_return = True
+    else:
+        logger.info(f"WARNING: {cent_out_fpath.name} doesn't exist but it should?!")
+        to_return = False
+
+    logger.info("Moving onto next file...")
+    del df, cdf
+    gc.collect()
+    return to_return
 
 
 def convert_tpx3_files(
