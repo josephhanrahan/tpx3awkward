@@ -40,6 +40,7 @@ dependencies = [
   "tqdm",
   "pyarrow",
   "tables",
+  "pydantic",
 ]
 
 [project.urls]
