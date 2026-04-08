@@ -6,33 +6,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 
 from .cluster import DEFAULT_CLUSTER_RADIUS, DEFAULT_CLUSTER_TW, cluster_raw_df
-from .decoding import tpx_to_raw_df
-from .files import converted_path, save_df, trim_corr_file
+from .decoding import decode_tpx3_binary
+from .files import converted_path, raw_as_numpy, save_df, trim_corr_file
 from .schemas import empty_cent_df, empty_raw_df
 
 logger = logging.getLogger(__name__)
 f_type = SimpleNamespace(HDF=".h5", PARQUET=".parquet")
-
-
-def drop_zero_tot(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Removes events which don't have positive ToT. Necessary step before clustering.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame to have ToT filtered.
-
-    Returns
-    -------
-    pd.DataFrame
-       df with only the events with ToT > 0
-    """
-    return df[df["ToT"] > 0]
 
 
 def convert_tpx3_file(
@@ -102,8 +84,7 @@ def convert_tpx3_file(
         return False
 
     logger.info(f"-> Processing {tpx3_fpath.name}, size: {tpx3_fpath.stat().st_size / (1024 * 1024):.1f} MB")
-
-    df = drop_zero_tot(tpx_to_raw_df(tpx3_fpath))
+    df = decode_tpx3_binary(raw_as_numpy(tpx3_fpath))
     num_events = df.shape[0]
 
     if num_events == 0:

@@ -4,8 +4,22 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 f_type = SimpleNamespace(HDF=".h5", PARQUET=".parquet")
+
+
+def raw_as_numpy(fpath: str | Path) -> NDArray[np.uint64]:
+    """
+    Read raw tpx3 data file as a numpy array.
+
+    Each entry is read as a uint8 (64bit unsigned-integer)
+
+    Parameters
+    ----------
+
+    """
+    return np.fromfile(fpath, dtype="<u8")
 
 
 def trim_corr_file(
