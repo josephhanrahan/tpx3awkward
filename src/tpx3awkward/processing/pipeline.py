@@ -10,6 +10,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from .cluster import DEFAULT_CLUSTER_RADIUS, DEFAULT_CLUSTER_TW, cluster_raw_df
+from .config import Tpx3Config
 from .decoding import tpx_to_raw_df
 from .files import converted_path, save_df, trim_corr_file
 from .schemas import empty_cent_df, empty_raw_df
@@ -37,6 +38,7 @@ def drop_zero_tot(df: pd.DataFrame) -> pd.DataFrame:
 
 def convert_tpx3_file(
     tpx3_fpath: str | Path,
+    config: Tpx3Config = None,
     extension: str = f_type.PARQUET,
     output_dir: str | Path | None = None,
     tw: float = DEFAULT_CLUSTER_TW,
@@ -56,7 +58,9 @@ def convert_tpx3_file(
     ----------
     tpx3_fpath : Union[str, Path]
         .tpx3 file path
-    extension: str
+    config: Tpx3Config = None
+        Configuration settings for data processing
+    extension: str = '.parquet'
         type of file format (.h5 , .parquet) to export to. Can use internal f_type namespace to alias
     tw : float = DEFAULT_CLUSTER_TW_MICROSECONDS
         The time window, in Timepix timestamp units, to perform centroiding
@@ -128,7 +132,7 @@ def convert_tpx3_file(
 
                     logger.info(f"Clustering and centroiding complete. Saving to {cent_out_fpath.name}...")
 
-                    save_df(cdf, cent_out_fpath)
+                    save_df(cdf, cent_out_fpath, config=config)
                     logger.info(f"Saving {cent_out_fpath.name} complete. Checking file existence...")
 
                     if cent_out_fpath.exists():
