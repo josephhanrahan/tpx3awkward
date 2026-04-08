@@ -32,14 +32,14 @@ def convert_tpx3_file(
     """
     Convert a .tpx3 file into raw and centroided Pandas dataframes, which are stored in .h5 files.
 
-    TO DO: Args to specify output directory (default will be same directory as .tpx3 file as is now).
-
     Parameters
     ----------
-    tpx3_fpath : Union[str, Path]
+    tpx3_fpath : str | Path
         .tpx3 file path
-    extension: str
+    extension: str = ".parquet"
         type of file format (.h5 , .parquet) to export to. Can use internal f_type namespace to alias
+    output_dir: str | Path | None = None
+        Directory to save converted files to. Will save to same directory as file if None
     tw : float = DEFAULT_CLUSTER_TW_MICROSECONDS
         The time window, in Timepix timestamp units, to perform centroiding
     radius : int = DEFAULT_CLUSTER_RADIUS
@@ -54,6 +54,13 @@ def convert_tpx3_file(
         Boolean toggle about whether to overwrite pre-existing data.
     energy_calib: np.ndarray = None
         numpy array of dimension (514, 514, 4) and type float64 that contains the parameters to the E(ToT) function
+
+    Raises
+    ------
+    FileNotFoundError
+        If tpx3_fpath can't be found
+    ValueError
+        If the file doesn't have `.tpx3` suffix
     """
 
     if print_details:
@@ -163,16 +170,29 @@ def convert_tpx3_files(
             print("Failed to load calibration: {e}")
 
     # Process files sequentially with tqdm progress bar
-    for file in tqdm(fpaths, desc="Processing files"):
-        convert_tpx3_file(
-            file,
-            extension=extension,
-            output_dir=output_dir,
-            trim_correct=trim_mask,
-            print_details=print_details,
-            energy_calib=energy_calib,
-            **kwargs,
-        )
+    for fpath in tqdm(fpaths, desc="Processing files"):
+        try:
+            convert_tpx3_file(
+                fpath,
+                extension=extension,
+                output_dir=output_dir,
+                trim_correct=trim_mask,
+                print_details=print_details,
+                energy_calib=energy_calib,
+                **kwargs,
+            )
+        except Exception:  # noqa: PERF203
+            logger.exception(f"Failed to process {fpath}")
+
+
+def convert_tpx3_file_worker(fpath, **kwargs):
+    """Worker function for convert_tpx3_files_parallel in order to catch potential errors"""
+    try:
+        convert_tpx3_file(fpath, **kwargs)
+        return True
+    except Exception:
+        logger.exception(f"Failed to process {fpath}")
+        return False
 
 
 def convert_tpx3_files_parallel(
@@ -223,7 +243,7 @@ def convert_tpx3_files_parallel(
 
         # Pass the preloaded mask to all workers
         worker_func = partial(
-            convert_tpx3_file,
+            convert_tpx3_file_worker,
             extension=extension,
             output_dir=output_dir,
             trim_correct=trim_mask,
