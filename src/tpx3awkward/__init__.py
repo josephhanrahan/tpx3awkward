@@ -7,7 +7,6 @@ from .processing import (
     convert_tpx3_files_parallel,
     find_unmatched_tpx3_files,
     read_parquet_config,
-    tpx_to_raw_df,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "convert_tpx3_files_parallel",
     "find_unmatched_tpx3_files",
     "read_parquet_config",
-    "tpx_to_raw_df",
 ]
