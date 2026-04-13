@@ -37,7 +37,8 @@ def test_convert_tpx3_file_config(tmp_path):
     energy_estimation_test_parameters = np.load(path_to_energy_parameters)
 
     with path_to_yaml_config.open() as f:
-        tpx3_config = Tpx3Config.model_validate(yaml.safe_load(f))
+        data = yaml.safe_load(f)
+    tpx3_config = Tpx3Config.model_validate(data)
 
     convert_tpx3_file(
         path_to_data,
@@ -51,7 +52,7 @@ def test_convert_tpx3_file_config(tmp_path):
     cdf = pd.read_parquet(processed_cdf_fpath)
     required = {"t", "xc", "yc", "ToT_max", "ToT_sum", "n", "e_sum", "t_corr"}
     assert required.issubset(cdf.columns)
-    tpx3_config.energy_estimation_parameters = True
+    tpx3_config.energy_estimation_parameters = None
     assert read_parquet_config(processed_cdf_fpath) == dict(tpx3_config)
 
 

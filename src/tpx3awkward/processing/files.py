@@ -161,7 +161,7 @@ def save_df(df: pd.DataFrame, fpath: str | Path, config: Tpx3Config | None = Non
                 table = pa.Table.from_pandas(df)
                 metadata = dict(table.schema.metadata)
                 config = dict(config)
-                config["energy_estimation_parameters"] = True
+                config["energy_estimation_parameters"] = None
                 metadata[b"config"] = json.dumps(config).encode()
                 table = table.replace_schema_metadata(metadata)
                 pq.write_table(table, fpath, compression="snappy")
@@ -174,8 +174,6 @@ def save_df(df: pd.DataFrame, fpath: str | Path, config: Tpx3Config | None = Non
                 )
         case _:
             raise TypeError(f"unknown/unimplemented file type: {fpath.suffix}")
-
-    # df.to_hdf(fpath, key="df", format="table", mode="w")
 
 
 def read_parquet_config(fpath: Path | str):
