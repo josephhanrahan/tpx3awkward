@@ -1,7 +1,7 @@
 from ._version import version as __version__
 from .processing import (
     Tpx3Config,
-    cluster_raw_df,
+    cluster_decoded_df,
     convert_tpx3_file,
     convert_tpx3_files,
     convert_tpx3_files_parallel,
@@ -12,7 +12,7 @@ from .processing import (
 __all__ = [
     "Tpx3Config",
     "__version__",
-    "cluster_raw_df",
+    "cluster_decoded_df",
     "convert_tpx3_file",
     "convert_tpx3_files",
     "convert_tpx3_files_parallel",

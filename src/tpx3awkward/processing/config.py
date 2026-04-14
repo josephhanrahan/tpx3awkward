@@ -14,7 +14,7 @@ class Tpx3Config(BaseModel):
 
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     # --- Clustering ---
     time_window: float
@@ -70,6 +70,7 @@ class Tpx3Config(BaseModel):
     def validate_file_extension(cls, value: str):
         if value not in (".h5", ".parquet"):
             raise ValueError("file_extension must be one of '.h5' or '.parquet'")
+        return value
 
     @model_validator(mode="after")
     def validate_dependencies(self):

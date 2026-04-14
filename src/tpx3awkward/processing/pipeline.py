@@ -3,33 +3,26 @@ import logging
 import multiprocessing
 from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 from tqdm import tqdm
 
-from .cluster import DEFAULT_CLUSTER_RADIUS, DEFAULT_CLUSTER_TW, cluster_raw_df
+from .cluster import cluster_decoded_df
 from .config import Tpx3Config
+from .corrections import estimate_energies
 from .decoding import decode_tpx3_binary
-from .files import converted_path, raw_as_numpy, save_df, trim_corr_file
-from .schemas import empty_cent_df, empty_raw_df
+from .files import converted_path, f_type, raw_as_numpy, save_df, trim_corr_file
+from .schemas import empty_cent_df
 
 logger = logging.getLogger(__name__)
-f_type = SimpleNamespace(HDF=".h5", PARQUET=".parquet")
 
 
 def convert_tpx3_file(
     tpx3_fpath: str | Path,
-    config: Tpx3Config = None,
-    extension: str = f_type.PARQUET,
+    *,
     output_dir: str | Path | None = None,
-    tw: float = DEFAULT_CLUSTER_TW,
-    radius: int = DEFAULT_CLUSTER_RADIUS,
-    energy_calib: np.ndarray | None = None,
-    timewalk_correct: bool = False,
-    trim_correct: bool = False,
-    print_details: bool = False,
-    overwrite: bool = True,
+    config: Tpx3Config | None = None,
+    **overrides,
 ):
     """
     Convert a .tpx3 file into raw and centroided Pandas dataframes, which are stored in .h5 files.
@@ -38,24 +31,10 @@ def convert_tpx3_file(
     ----------
     tpx3_fpath : str | Path
         .tpx3 file path
-    extension: str = ".parquet"
-        type of file format (.h5 , .parquet) to export to. Can use internal f_type namespace to alias
-    output_dir: str | Path | None = None
+    output_dir : str | Path | None = None
         Directory to save converted files to. Will save to same directory as file if None
-    tw : float = DEFAULT_CLUSTER_TW_MICROSECONDS
-        The time window, in Timepix timestamp units, to perform centroiding
-    radius : int = DEFAULT_CLUSTER_RADIUS
-        The radius, in pixels, to perform centroiding
-    trim_correct : bool = False
-        Whether to apply trim correction
-    timewalk_correct : bool = False
-        Whether to apply timewalk correction
-    print_details : bool = False
-        Boolean toggle about whether to print detailed data.
-    overwrite : bool = True
-        Boolean toggle about whether to overwrite pre-existing data.
-    energy_calib: np.ndarray = None
-        numpy array of dimension (514, 514, 4) and type float64 that contains the parameters to the E(ToT) function
+    config : Tpx3Config | None = None
+        Defines the configurations for processing, considered the ground truth and overrides any kwargs
 
     Raises
     ------
@@ -64,8 +43,12 @@ def convert_tpx3_file(
     ValueError
         If the file doesn't have `.tpx3` suffix
     """
+    if config is not None and overrides:
+        raise ValueError("Pass either `config` or keyword overrides, not both.")
+    if config is None:
+        config = Tpx3Config.from_defaults(**overrides)
 
-    if print_details:
+    if config.verbose:
         logger.setLevel(logging.INFO)
     else:
         logger.setLevel(logging.WARNING)
@@ -77,50 +60,69 @@ def convert_tpx3_file(
     if tpx3_fpath.suffix != ".tpx3":
         raise ValueError(f"{tpx3_fpath} is not a .tpx3 file")
 
-    out_fpath = converted_path(tpx3_fpath, extension=extension, cent=False)
-    cent_out_fpath = converted_path(tpx3_fpath, extension=extension, cent=True)
+    out_fpath = converted_path(tpx3_fpath, extension=config.file_extension, cent=False)
+    cent_out_fpath = converted_path(tpx3_fpath, extension=config.file_extension, cent=True)
 
     if output_dir:
         output_dir = Path(output_dir)
+        if output_dir.exists() and not output_dir.is_dir():
+            raise ValueError(f"{output_dir} exists but is not a directory.")
+        output_dir.mkdir(
+            parents=True, exist_ok=True
+        )  # TODO should we be doing this? compare with what sophy and/or pymepix does
         out_fpath = output_dir / out_fpath.name
         cent_out_fpath = output_dir / cent_out_fpath.name
 
     have_df = out_fpath.exists()  # Check if dfname exists
     have_dfc = cent_out_fpath.exists()  # Check if dfcname exists
 
-    if have_df and have_dfc and not overwrite:
-        print(f"-> {tpx3_fpath.name} already processed, skipping.")
+    if have_df and have_dfc and not config.overwrite:
+        logger.info(f"-> {tpx3_fpath.name} already processed, skipping.")
         return False
 
     logger.info(f"-> Processing {tpx3_fpath.name}, size: {tpx3_fpath.stat().st_size / (1024 * 1024):.1f} MB")
-    df = decode_tpx3_binary(raw_as_numpy(tpx3_fpath))
-    num_events = df.shape[0]
+    decoded_df = decode_tpx3_binary(raw_as_numpy(tpx3_fpath))
+    num_events = decoded_df.shape[0]
 
     if num_events == 0:
         logger.info("No events found! Saving empty dataframes.")
-        include_energy = isinstance(energy_calib, np.ndarray)
-        save_df(empty_raw_df(include_energy=include_energy), out_fpath)
-        save_df(empty_cent_df(include_energy=include_energy), cent_out_fpath)
+        save_df(
+            empty_cent_df(estimate_energy=config.estimate_energy, correct_timewalk=config.correct_timewalk), cent_out_fpath
+        )
         gc.collect()
         return True
 
     logger.info(f"Loading {tpx3_fpath.name} complete. {num_events} events found.")
 
-    cdf = cluster_raw_df(
-        df,
-        tw,
-        radius,
-        energy_calib=energy_calib,
-        timewalk_correct=timewalk_correct,
-        trim_correct=trim_correct,
+    if config.estimate_energy:
+        decoded_df["e"] = estimate_energies(
+            decoded_df["x"].to_numpy(),
+            decoded_df["y"].to_numpy(),
+            decoded_df["ToT"].to_numpy(),
+            config.energy_estimation_parameters,
+        )
+    # if config.correct_timewalk:
+    # decoded_df['t_corr'] = timewalk_corr(decoded_df['t'].to_numpy(),
+    # decoded_df['ToT'].to_numpy(), b=config.timewalk_b, c=config.timewalk_c)
+
+    if config.correct_trim:
+        ...
+
+    clustered_df = cluster_decoded_df(
+        decoded_df,
+        config.time_window,
+        config.radius,
+        energy_calib=config.energy_estimation_parameters,
+        timewalk_correct=config.correct_timewalk,
+        trim_correct=config.correct_trim,
     )
     # maybe we should put this somewhere else...
-    cdf.loc[cdf["xc"] >= 255.5, "xc"] += 2
-    cdf.loc[cdf["yc"] >= 255.5, "yc"] += 2
+    clustered_df.loc[clustered_df["xc"] >= 255.5, "xc"] += 2
+    clustered_df.loc[clustered_df["yc"] >= 255.5, "yc"] += 2
 
     logger.info(f"Clustering and centroiding complete. Saving to {cent_out_fpath.name}...")
 
-    save_df(cdf, cent_out_fpath, config=config)
+    save_df(clustered_df, cent_out_fpath, config=config)
     logger.info(f"Saving {cent_out_fpath.name} complete. Checking file existence...")
 
     if cent_out_fpath.exists():
@@ -130,8 +132,7 @@ def convert_tpx3_file(
         logger.info(f"WARNING: {cent_out_fpath.name} doesn't exist but it should?!")
         to_return = False
 
-    logger.info("Moving onto next file...")
-    del df, cdf
+    del decoded_df, clustered_df
     gc.collect()
     return to_return
 

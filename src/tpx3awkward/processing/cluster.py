@@ -2,7 +2,7 @@ import numba
 import numpy as np
 import pandas as pd
 
-from .corrections import estimate_energies, timewalk_corr_exp, trim_corr
+from .corrections import timewalk_corr_exp, trim_corr
 
 TIMESTAMP_VALUE = 1.5625 * 1e-9  # each raw timestamp is 1.5625 seconds
 MICROSECOND = 1e-6
@@ -173,7 +173,7 @@ def ingest_cent_data(
     return dict(zip(keys, data, strict=False))
 
 
-def cluster_raw_df(
+def cluster_decoded_df(
     df: pd.DataFrame,
     tw: float = DEFAULT_CLUSTER_TW,
     radius: int = DEFAULT_CLUSTER_RADIUS,
@@ -185,8 +185,6 @@ def cluster_raw_df(
     # apply gap (needed for correct pixel mapping to energy calibrations)
     if trim_correct:
         df = trim_corr(df, trim_correct)
-    if include_energy:
-        df["e"] = estimate_energies(df["x"].to_numpy(), df["y"].to_numpy(), df["ToT"].to_numpy(), energy_calib)
     cluster_labels, events = cluster(df, tw, radius, include_energy=include_energy)
     df["cluster_id"] = cluster_labels
     cluster_array = group_indices(cluster_labels)
