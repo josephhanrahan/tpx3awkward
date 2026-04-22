@@ -2,7 +2,7 @@ import numba
 import numpy as np
 import pandas as pd
 
-TIMESTAMP_VALUE = 1.5625 * 1e-9  # each raw timestamp is 1.5625 seconds
+TIMESTAMP_VALUE = 1.5625 * 1e-9  # each raw timestamp is 1.5625 nanoseconds
 MICROSECOND = 1e-6
 
 # We have had decent success with these values, but do not know for sure if they are optimal.
@@ -12,7 +12,7 @@ DEFAULT_CLUSTER_TW_MICROSECONDS = 0.3
 DEFAULT_CLUSTER_TW = int(DEFAULT_CLUSTER_TW_MICROSECONDS * MICROSECOND / TIMESTAMP_VALUE)
 
 
-def cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bool = False):
+def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bool = False):
     cols = ["t", "x", "y", "ToT", "t"]
 
     if estimate_energy:
@@ -20,16 +20,18 @@ def cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: boo
     if correct_timewalk:
         cols.append("t_corr")
 
-    events = df[cols].to_numpy()
-    events[:, 0] = np.floor_divide(events[:, 0], tw)  # Bin timestamps into time windows
+    tw_ts_ticks = int(tw * MICROSECOND / TIMESTAMP_VALUE)
 
-    labels = get_cluster_labels(events, tw, radius)
+    events = df[cols].to_numpy()
+    events[:, 0] = np.floor_divide(events[:, 0], tw_ts_ticks)  # Bin timestamps into time windows
+
+    labels = _get_cluster_labels(events, tw_ts_ticks, radius)
 
     return labels, events[:, 1:]
 
 
 @numba.jit(nopython=True, cache=True)
-def get_cluster_labels(events, tw, radius):
+def _get_cluster_labels(events, tw, radius):
     n = len(events)
     labels = np.full(n, -1, dtype=np.int64)
     cluster_id = 0
@@ -57,7 +59,7 @@ def get_cluster_labels(events, tw, radius):
 
 
 @numba.jit(nopython=True, cache=True)
-def group_indices(labels):
+def _group_indices(labels):
     """
     Group indices by cluster ID using pre-allocated arrays in a Numba-optimized way.
 
@@ -90,13 +92,12 @@ def group_indices(labels):
 
 
 @numba.jit(nopython=True, cache=True)
-def centroid_clusters(
+def _centroid_clusters(
     cluster_arr: np.ndarray,
     events: np.ndarray,
     estimate_energy: bool = False,
     correct_timewalk: bool = False,
 ) -> tuple[np.ndarray]:
-
     num_clusters = cluster_arr.shape[0]
     max_cluster = cluster_arr.shape[1]
     t = np.zeros(num_clusters, dtype="uint64")
@@ -138,7 +139,7 @@ def centroid_clusters(
     return t, xc, yc, ToT_max, ToT_sum, n, e_sum, t_corr
 
 
-def ingest_cent_data(
+def _ingest_cent_data(
     data: np.ndarray, estimate_energy: bool = False, correct_timewalk: bool = False
 ) -> dict[str, np.ndarray]:
     """
@@ -174,14 +175,34 @@ def cluster_decoded_df(
     df: pd.DataFrame,
     tw: float,
     radius: int,
-    correct_timewalk: bool = False,
 ) -> pd.DataFrame:
-    # apply gap (needed for correct pixel mapping to energy calibrations)
+    """
+    Cluster and centroid a decoded DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Decoded dataframe with columns ['x', 'y', 'ToT', 't', 'chip'].
+        May also include optional columns 'e' and 't_corr'.
+    tw : float
+        Time Window for the clustering algorithm, in microseconds.
+    radius : int,
+        Radius for the clustering algorithm, in pixels.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns ['t', 'xc', 'yc', 'ToT_max', 'ToT_sum', 'n'].
+        Includes columns 'e_sum' and/or 't_corr' depending on the input DataFrame.
+    """
     estimate_energy: bool = "e" in df.columns
-    cluster_labels, events = cluster(df, tw, radius, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk)
+    correct_timewalk: bool = "t_corr" in df.columns
+
+    cluster_labels, events = _cluster(df, tw, radius, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk)
     df["cluster_id"] = cluster_labels
-    cluster_array = group_indices(cluster_labels)
-    data = centroid_clusters(
+    cluster_array = _group_indices(cluster_labels)
+
+    data = _centroid_clusters(
         cluster_array,
         events,
         estimate_energy=estimate_energy,
@@ -189,7 +210,7 @@ def cluster_decoded_df(
     )
 
     return (
-        pd.DataFrame(ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
+        pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
         .sort_values(["t", "xc", "yc", "ToT_max", "ToT_sum"])
         .reset_index(drop=True)
     )

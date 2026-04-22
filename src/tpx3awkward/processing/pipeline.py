@@ -29,7 +29,7 @@ def convert_tpx3_file(
     Parameters
     ----------
     tpx3_fpath : str | Path
-        .tpx3 file path
+        Path to a `.tpx3` file
     output_dir : str | Path | None = None
         Directory to save converted files to. Will save to the same directory as file if None
     config : Tpx3Config | None = None
@@ -74,10 +74,7 @@ def convert_tpx3_file(
         out_fpath = output_dir / out_fpath.name
         cent_out_fpath = output_dir / cent_out_fpath.name
 
-    have_df = out_fpath.exists()  # Check if dfname exists
-    have_dfc = cent_out_fpath.exists()  # Check if dfcname exists
-
-    if have_df and have_dfc and not config.overwrite:
+    if out_fpath.exists() and cent_out_fpath.exists() and not config.overwrite:
         logger.info(f"-> {tpx3_fpath.name} already processed, skipping.")
         return False
 
@@ -115,7 +112,6 @@ def convert_tpx3_file(
         decoded_df,
         config.time_window,
         config.radius,
-        correct_timewalk=config.correct_timewalk,
     )
     # maybe we should put this somewhere else...
     clustered_df.loc[clustered_df["xc"] >= 255.5, "xc"] += 2
