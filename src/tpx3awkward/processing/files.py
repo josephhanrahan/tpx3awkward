@@ -1,5 +1,5 @@
 import json
-import warnings
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 
 from .config import Tpx3Config
 
+logger = logging.getLogger(__name__)
 f_type = SimpleNamespace(HDF=".h5", PARQUET=".parquet")
 
 
@@ -125,7 +126,7 @@ def converted_path(filepath: str | Path, extension: str = f_type.PARQUET, cent: 
         out_path = str(filepath).replace("/assets/", "/Compressed_Data/")
     else:
         if "/nsls2/data/chx/legacy/" not in str(filepath):
-            warnings.warn(
+            logger.info(
                 "unexpected file path used, operation will proceed but it is suggested to confirm correct target directory",
                 stacklevel=2,
             )
