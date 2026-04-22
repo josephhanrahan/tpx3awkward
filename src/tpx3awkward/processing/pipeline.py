@@ -4,14 +4,13 @@ import multiprocessing
 from functools import partial
 from pathlib import Path
 
-import numpy as np
 from tqdm import tqdm
 
 from .cluster import cluster_decoded_df
 from .config import Tpx3Config
-from .corrections import estimate_energies
+from .corrections import estimate_energies, timewalk_corr, trim_corr
 from .decoding import decode_tpx3_binary
-from .files import converted_path, f_type, raw_as_numpy, save_df, trim_corr_file
+from .files import converted_path, raw_as_numpy, save_df
 from .schemas import empty_cent_df
 
 logger = logging.getLogger(__name__)
@@ -32,9 +31,11 @@ def convert_tpx3_file(
     tpx3_fpath : str | Path
         .tpx3 file path
     output_dir : str | Path | None = None
-        Directory to save converted files to. Will save to same directory as file if None
+        Directory to save converted files to. Will save to the same directory as file if None
     config : Tpx3Config | None = None
-        Defines the configurations for processing, considered the ground truth and overrides any kwargs
+        Defines the configurations for processing. If None, then will use `Tpx3Config.from_defaults` with overrides
+    **overrides
+        Used when config is None to override default parameters.
 
     Raises
     ------
@@ -101,20 +102,20 @@ def convert_tpx3_file(
             decoded_df["ToT"].to_numpy(),
             config.energy_estimation_parameters,
         )
-    # if config.correct_timewalk:
-    # decoded_df['t_corr'] = timewalk_corr(decoded_df['t'].to_numpy(),
-    # decoded_df['ToT'].to_numpy(), b=config.timewalk_b, c=config.timewalk_c)
+
+    if config.correct_timewalk:
+        decoded_df["t_corr"] = timewalk_corr(
+            decoded_df["t"].to_numpy(), decoded_df["ToT"].to_numpy(), config.timewalk_b, config.timewalk_c
+        )
 
     if config.correct_trim:
-        ...
+        decoded_df = trim_corr(decoded_df, config.trim_mask)
 
     clustered_df = cluster_decoded_df(
         decoded_df,
         config.time_window,
         config.radius,
-        energy_calib=config.energy_estimation_parameters,
-        timewalk_correct=config.correct_timewalk,
-        trim_correct=config.correct_trim,
+        correct_timewalk=config.correct_timewalk,
     )
     # maybe we should put this somewhere else...
     clustered_df.loc[clustered_df["xc"] >= 255.5, "xc"] += 2
@@ -138,54 +139,38 @@ def convert_tpx3_file(
 
 
 def convert_tpx3_files(
-    fpaths: list[str] | list[Path],
-    extension: str = f_type.PARQUET,
+    tpx3_fpaths: list[str] | list[Path],
+    *,
     output_dir: str | Path | None = None,
-    trim_correct: str | Path | None = None,
-    print_details: bool = True,
-    energy_calib: np.ndarray | str | Path | None = None,
-    **kwargs,
+    config: Tpx3Config | None = None,
+    **overrides,
 ):
     """
-    Convert a list of .tpx3 files in a single process using convert_tpx3_file().
+    Convert a list of .tpx3 files in a single process using convert_tpx3_file(), catching any errors.
 
     Parameters
     ----------
-    fpaths : Union[List[str], List[Path]]
-        List of .tpx3 file paths to process.
-    extension: str
-        type of file format (.h5 , .parquet) to export to. Can use internal f_type namespace to alias
-    trim_mask_fpath : str, optional
-        Path to the trim correction mask. If None, no correction is applied.
-    print_details : bool, optional
-        Boolean toggle about whether to print detailed data. Default is True.
-    **kwargs : dict
-        Additional keyword arguments passed to `convert_tpx3_file()`.
+    tpx3_fpaths : list[str] | list[Path]
+        .tpx3 file paths
+    output_dir : str | Path | None = None
+        Directory to save converted files to. Will save to the same directory as file if None
+    config : Tpx3Config | None = None
+        Defines the configurations for processing. If None, then will use `Tpx3Config.from_defaults` with overrides
+    **overrides
+        Used when config is None to override default parameters.
     """
-    # Load the mask once (only if provided)
-    trim_mask = trim_corr_file(trim_correct)
-
-    # Load energy estimation params
-    if isinstance(energy_calib, (str, Path)):
-        try:
-            energy_calib = np.load(energy_calib)
-        except Exception:
-            print("Failed to load calibration: {e}")
+    # create config here so it is only done once
+    if config is not None and overrides:
+        raise ValueError("Pass either `config` or keyword overrides, not both.")
+    if config is None:
+        config = Tpx3Config.from_defaults(**overrides)
 
     # Process files sequentially with tqdm progress bar
-    for fpath in tqdm(fpaths, desc="Processing files"):
+    for tpx3_fpath in tqdm(tpx3_fpaths, desc="Processing files"):
         try:
-            convert_tpx3_file(
-                fpath,
-                extension=extension,
-                output_dir=output_dir,
-                trim_correct=trim_mask,
-                print_details=print_details,
-                energy_calib=energy_calib,
-                **kwargs,
-            )
+            convert_tpx3_file(tpx3_fpath, output_dir=output_dir, config=config)
         except Exception:  # noqa: PERF203
-            logger.exception(f"Failed to process {fpath}")
+            logger.exception(f"Failed to process {tpx3_fpath}")
 
 
 def convert_tpx3_file_worker(fpath, **kwargs):
@@ -199,73 +184,53 @@ def convert_tpx3_file_worker(fpath, **kwargs):
 
 
 def convert_tpx3_files_parallel(
-    fpaths: list[str] | list[Path],
-    extension=f_type.PARQUET,
+    tpx3_fpaths: list[str] | list[Path],
+    *,
     output_dir: str | Path | None = None,
+    config: Tpx3Config | None = None,
     num_workers: int | None = None,
-    trim_correct: str | Path | None = None,
-    energy_calib: np.ndarray | str | Path | None = None,
-    **kwargs,
+    **overrides,
 ):
     """
     Convert a list of .tpx3 files in parallel using multiprocessing and convert_tpx3_file().
 
     Parameters
     ----------
-    fpaths : Union[List[str], List[Path]]
-        List of .tpx3 file paths to process.
-    extension: str
-        type of file format (.h5 , .parquet) to export to. Can use internal f_type namespace to alias
-    num_workers : int, optional
-        Number of worker processes to use. Defaults to (CPU count - 4) to leave room for other tasks.
-    trim_mask_fpath : str, optional
-        Path to the trim correction mask. If None, no correction is applied.
-    energy_calib_fpath: np.ndarray = None
-        fpath pointing to energy estimation parameters array saved as .npy file.
-        if not specified then energy won't be estimated.
-    **kwargs : dict
-        Additional keyword arguments passed to `convert_tpx3_file()`.
+    tpx3_fpaths : list[str] | list[Path]
+        .tpx3 file paths
+    output_dir : str | Path | None = None
+        Directory to save converted files to. Will save to the same directory as file if None
+    config : Tpx3Config | None = None
+        Defines the configurations for processing. If None, then will use `Tpx3Config.from_defaults` with overrides
+    num_workers : int | None = None
+        Number of worker processes to use. Defaults to max(1, (CPU count - 4)) to leave room for other tasks.
+    **overrides
+        Used when config is None to override default parameters.
     """
-    if len(fpaths) > 0:
-        if num_workers is None:
-            max_workers = min(multiprocessing.cpu_count() - 4, len(fpaths))  # Leave 4 cores free
-        else:
-            max_workers = min(num_workers, len(fpaths))  # Don't use more workers than files
+    # create config here so it is only done once
+    if config is not None and overrides:
+        raise ValueError("Pass either `config` or keyword overrides, not both.")
+    if config is None:
+        config = Tpx3Config.from_defaults(**overrides)
 
-        max_workers = max(max_workers, 1)
+    if num_workers is None:
+        max_workers = min(multiprocessing.cpu_count() - 4, len(tpx3_fpaths))  # Leave 4 cores free
+    else:
+        max_workers = min(num_workers, len(tpx3_fpaths))  # Don't use more workers than files
 
-        # Load the mask once
-        trim_mask = trim_corr_file(trim_correct)
+    max_workers = max(max_workers, 1)
 
-        # Load energy estimation params
-        if isinstance(energy_calib, (str, Path)):
-            try:
-                energy_calib = np.load(energy_calib)
-            except Exception as e:
-                print(f"Failed to load calibration: {e}")
+    worker_func = partial(convert_tpx3_file_worker, output_dir=output_dir, config=config)
 
-        # Pass the preloaded mask to all workers
-        worker_func = partial(
-            convert_tpx3_file_worker,
-            extension=extension,
-            output_dir=output_dir,
-            trim_correct=trim_mask,
-            energy_calib=energy_calib,
-            **kwargs,
+    with multiprocessing.Pool(processes=max_workers) as pool:
+        results = list(
+            tqdm(
+                pool.imap_unordered(worker_func, tpx3_fpaths),
+                total=len(tpx3_fpaths),
+                desc="Processing files",
+            )
         )
 
-        with multiprocessing.Pool(processes=max_workers) as pool:
-            results = list(
-                tqdm(
-                    pool.imap_unordered(worker_func, fpaths),
-                    total=len(fpaths),
-                    desc="Processing files",
-                )
-            )
-
-        # Count successes
-        num_true = sum(results)
-    else:
-        num_true = 0
-
-    print(f"Successfully converted {num_true} out of {len(fpaths)}!")
+    # Count successes
+    num_true = sum(results)
+    print(f"Successfully converted {num_true} out of {len(tpx3_fpaths)}!")

@@ -2,8 +2,6 @@ import numba
 import numpy as np
 import pandas as pd
 
-from .corrections import timewalk_corr_exp, trim_corr
-
 TIMESTAMP_VALUE = 1.5625 * 1e-9  # each raw timestamp is 1.5625 seconds
 MICROSECOND = 1e-6
 
@@ -14,16 +12,13 @@ DEFAULT_CLUSTER_TW_MICROSECONDS = 0.3
 DEFAULT_CLUSTER_TW = int(DEFAULT_CLUSTER_TW_MICROSECONDS * MICROSECOND / TIMESTAMP_VALUE)
 
 
-def cluster(
-    df,
-    tw=DEFAULT_CLUSTER_TW,
-    radius=DEFAULT_CLUSTER_RADIUS,
-    include_energy: bool = False,
-):
+def cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bool = False):
     cols = ["t", "x", "y", "ToT", "t"]
 
-    if include_energy:
+    if estimate_energy:
         cols.append("e")
+    if correct_timewalk:
+        cols.append("t_corr")
 
     events = df[cols].to_numpy()
     events[:, 0] = np.floor_divide(events[:, 0], tw)  # Bin timestamps into time windows
@@ -34,7 +29,7 @@ def cluster(
 
 
 @numba.jit(nopython=True, cache=True)
-def get_cluster_labels(events, tw=DEFAULT_CLUSTER_TW, radius=DEFAULT_CLUSTER_RADIUS):
+def get_cluster_labels(events, tw, radius):
     n = len(events)
     labels = np.full(n, -1, dtype=np.int64)
     cluster_id = 0
@@ -98,8 +93,8 @@ def group_indices(labels):
 def centroid_clusters(
     cluster_arr: np.ndarray,
     events: np.ndarray,
-    include_energy: bool = False,
-    timewalk_correct: bool = False,
+    estimate_energy: bool = False,
+    correct_timewalk: bool = False,
 ) -> tuple[np.ndarray]:
 
     num_clusters = cluster_arr.shape[0]
@@ -110,8 +105,10 @@ def centroid_clusters(
     ToT_max = np.zeros(num_clusters, dtype="uint32")
     ToT_sum = np.zeros(num_clusters, dtype="uint32")
     n = np.zeros(num_clusters, dtype="ubyte")
-    e_sum = np.zeros(num_clusters, dtype="float32")
-    t_corr = np.zeros(num_clusters, dtype="uint64")
+
+    # must always define arrays becuase numba wants identical return signatures
+    e_sum = np.zeros(num_clusters, dtype="float32") if estimate_energy else np.empty(0, dtype="float32")
+    t_corr = np.zeros(num_clusters, dtype="uint64") if correct_timewalk else np.empty(0, dtype="uint64")
 
     for cluster_id in range(num_clusters):
         _ToT_max = np.ushort(0)
@@ -121,15 +118,15 @@ def centroid_clusters(
                 if events[event, 2] > _ToT_max:  # find the max ToT, assign, use that time
                     _ToT_max = events[event, 2]
                     t[cluster_id] = events[event, 3]
-                    if timewalk_correct:
-                        t_corr[cluster_id] = events[event, 3] - timewalk_corr_exp(_ToT_max)
+                    if correct_timewalk:
+                        t_corr[cluster_id] = events[event, 5]
                     ToT_max[cluster_id] = _ToT_max
                 xc[cluster_id] += events[event, 0] * events[event, 2]  # x and y centroids by time over threshold
                 yc[cluster_id] += events[event, 1] * events[event, 2]
                 ToT_sum[cluster_id] += events[event, 2]  # calcuate sum
                 n[cluster_id] += np.ubyte(1)  # number of events in cluster
 
-                if include_energy:
+                if estimate_energy:
                     e_sum[cluster_id] += events[event, 4]
             else:
                 break
@@ -142,61 +139,57 @@ def centroid_clusters(
 
 
 def ingest_cent_data(
-    data: np.ndarray, include_energy: bool = False, timewalk_correct: bool = False
+    data: np.ndarray, estimate_energy: bool = False, correct_timewalk: bool = False
 ) -> dict[str, np.ndarray]:
     """
-    Performs the centroiding of a group of clusters.
+    Package np.ndarray into a dict with keys associated with the names of the columns dataframe.
 
     Parameters
     ----------
     data : np.ndarray
         The stream of cluster data from cluster_arr_to_cent()
-    include_energy : bool, optional
-        Whether the data includes energy sum (e_sum). Default is False.
+    estimate_energy : bool, optional
+        Whether the data includes estimated energy sum (e_sum). Default is False.
 
     Returns
     -------
     Dict[str, np.ndarray]
         A dictionary with keys:
         ['t', 'xc', 'yc', 'ToT_max', 'ToT_sum', 'n']
-        or
-        ['t', 'xc', 'yc', 'ToT_max', 'ToT_sum', 'e_sum', 'n'] if include_energy=True
+        and optional keys 'e_sum' and 't_corr'
     """
+    # first 6 columns are always included
     key_string = "t,xc,yc,ToT_max,ToT_sum,n"
+    rdict = dict(zip(key_string.split(","), data[:6], strict=True))
 
-    if include_energy:
-        key_string += ",e_sum"
-    if timewalk_correct:
-        key_string += ",t_corr"
+    if estimate_energy:
+        rdict["e_sum"] = data[6]
+    if correct_timewalk:
+        rdict["t_corr"] = data[7]
 
-    keys = key_string.split(",")
-    return dict(zip(keys, data, strict=False))
+    return rdict
 
 
 def cluster_decoded_df(
     df: pd.DataFrame,
-    tw: float = DEFAULT_CLUSTER_TW,
-    radius: int = DEFAULT_CLUSTER_RADIUS,
-    energy_calib: np.ndarray = None,
-    timewalk_correct: bool = False,
-    trim_correct: bool = False,
+    tw: float,
+    radius: int,
+    correct_timewalk: bool = False,
 ) -> pd.DataFrame:
-    include_energy = isinstance(energy_calib, np.ndarray)
     # apply gap (needed for correct pixel mapping to energy calibrations)
-    if trim_correct:
-        df = trim_corr(df, trim_correct)
-    cluster_labels, events = cluster(df, tw, radius, include_energy=include_energy)
+    estimate_energy: bool = "e" in df.columns
+    cluster_labels, events = cluster(df, tw, radius, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk)
     df["cluster_id"] = cluster_labels
     cluster_array = group_indices(cluster_labels)
     data = centroid_clusters(
         cluster_array,
         events,
-        include_energy=include_energy,
-        timewalk_correct=timewalk_correct,
+        estimate_energy=estimate_energy,
+        correct_timewalk=correct_timewalk,
     )
 
     return (
-        pd.DataFrame(ingest_cent_data(data, include_energy=include_energy, timewalk_correct=timewalk_correct))
+        pd.DataFrame(ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
         .sort_values(["t", "xc", "yc", "ToT_max", "ToT_sum"])
         .reset_index(drop=True)
     )
