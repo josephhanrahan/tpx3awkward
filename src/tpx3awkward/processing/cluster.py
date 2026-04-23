@@ -5,12 +5,6 @@ import pandas as pd
 TIMESTAMP_VALUE = 1.5625 * 1e-9  # each raw timestamp is 1.5625 nanoseconds
 MICROSECOND = 1e-6
 
-# We have had decent success with these values, but do not know for sure if they are optimal.
-DEFAULT_CLUSTER_RADIUS = 3
-DEFAULT_CLUSTER_TW_MICROSECONDS = 0.3
-
-DEFAULT_CLUSTER_TW = int(DEFAULT_CLUSTER_TW_MICROSECONDS * MICROSECOND / TIMESTAMP_VALUE)
-
 
 def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bool = False):
     cols = ["t", "x", "y", "ToT", "t"]

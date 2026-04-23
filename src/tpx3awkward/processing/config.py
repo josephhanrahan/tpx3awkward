@@ -3,8 +3,6 @@ from pathlib import Path
 import numpy as np
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from .cluster import DEFAULT_CLUSTER_TW
-
 
 class Tpx3Config(BaseModel):
     """
@@ -85,7 +83,7 @@ class Tpx3Config(BaseModel):
     @classmethod
     def from_defaults(cls, **overrides) -> "Tpx3Config":
         defaults = {
-            "time_window": DEFAULT_CLUSTER_TW,
+            "time_window": 0.3,
             "radius": 3,
             "file_extension": ".parquet",
             "add_centroid_cols": True,
