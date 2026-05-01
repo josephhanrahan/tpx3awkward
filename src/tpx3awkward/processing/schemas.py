@@ -35,7 +35,7 @@ def empty_raw_df(include_energy: bool = False) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-def empty_cent_df(include_energy: bool = False, timewalk_correct: bool = True) -> pd.DataFrame:
+def empty_cent_df(estimate_energy: bool = False, correct_timewalk: bool = False) -> pd.DataFrame:
     """
     Create an empty DataFrame with the expected columns from ingest_cent_data()
     and the specified data types.
@@ -60,9 +60,9 @@ def empty_cent_df(include_energy: bool = False, timewalk_correct: bool = True) -
         "n": np.array([], dtype="u1"),  # uint8 (ubyte)
     }
 
-    if include_energy:
+    if estimate_energy:
         data["e_sum"] = np.array([], dtype="float32")
-    if timewalk_correct:
+    if correct_timewalk:
         data["t_corr"] = np.array([], dtype="uint64")
 
     return pd.DataFrame(data)

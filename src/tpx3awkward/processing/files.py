@@ -1,11 +1,17 @@
-import warnings
+import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from numpy.typing import NDArray
 
+from .config import Tpx3Config
+
+logger = logging.getLogger(__name__)
 f_type = SimpleNamespace(HDF=".h5", PARQUET=".parquet")
 
 
@@ -120,7 +126,7 @@ def converted_path(filepath: str | Path, extension: str = f_type.PARQUET, cent: 
         out_path = str(filepath).replace("/assets/", "/Compressed_Data/")
     else:
         if "/nsls2/data/chx/legacy/" not in str(filepath):
-            warnings.warn(
+            logger.info(
                 "unexpected file path used, operation will proceed but it is suggested to confirm correct target directory",
                 stacklevel=2,
             )
@@ -131,7 +137,7 @@ def converted_path(filepath: str | Path, extension: str = f_type.PARQUET, cent: 
     return Path(out_path.replace(".tpx3", f"{'_cent' if cent else ''}{extension}"))
 
 
-def save_df(df: pd.DataFrame, fpath: str | Path):
+def save_df(df: pd.DataFrame, fpath: str | Path, config: Tpx3Config | None = None):
     """
     Save a Pandas DataFrame to a parquet file, ensuring that all necessary directories exist.
 
@@ -152,13 +158,28 @@ def save_df(df: pd.DataFrame, fpath: str | Path):
         case f_type.HDF:
             df.to_hdf(fpath, key="df", format="table", mode="w")
         case f_type.PARQUET:
-            df.to_parquet(
-                fpath,
-                engine="pyarrow",
-                index=False,  # important: do not rely on pandas index
-                compression="snappy",
-            )
+            if config:
+                table = pa.Table.from_pandas(df)
+                metadata = dict(table.schema.metadata)
+                config = dict(config)
+                config["energy_estimation_parameters"] = None
+                metadata[b"config"] = json.dumps(config).encode()
+                table = table.replace_schema_metadata(metadata)
+                pq.write_table(table, fpath, compression="snappy")
+            else:
+                df.to_parquet(
+                    fpath,
+                    engine="pyarrow",
+                    index=False,  # important: do not rely on pandas index
+                    compression="snappy",
+                )
         case _:
             raise TypeError(f"unknown/unimplemented file type: {fpath.suffix}")
 
-    # df.to_hdf(fpath, key="df", format="table", mode="w")
+
+def read_parquet_config(fpath: Path | str):
+    fpath = Path(fpath)
+
+    table = pq.read_table(fpath)
+    metadata = table.schema.metadata
+    return json.loads(metadata.get(b"config", b"{}"))

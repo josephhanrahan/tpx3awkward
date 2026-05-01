@@ -1,0 +1,21 @@
+# --- Clustering ---
+time_window: 0.3
+radius: 3
+
+# --- Energy estimation ---
+estimate_energy: True
+energy_estimation_parameters: "tests/configs/energy_estimation_test_parameters.npy"
+
+# --- Timewalk ---
+correct_timewalk: True
+timewalk_b: 167.0
+timewalk_c: -0.016
+
+# --- Trim correction ---
+correct_trim: False
+
+# --- Misc. ---
+file_extension: ".parquet"
+add_centroid_cols: True
+overwrite: True
+verbose: True
