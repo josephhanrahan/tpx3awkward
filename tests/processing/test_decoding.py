@@ -15,7 +15,7 @@ def test_decode_tpx3_binary_missing_messages(capsys):
 
 
 def test_decode_tpx3_binary_serval_4_missing_messages(capsys):
-    path_to_raw_data = RAW_DATA_DIR / "serval_4_3/rawANk_000000.tpx3"
+    path_to_raw_data = RAW_DATA_DIR / "serval_4_3/raw_test_data_serval_4_3_0.tpx3"
     binary = raw_as_numpy(path_to_raw_data)
     decode_tpx3_binary(binary)
     decode_tpx3_binary_capture = capsys.readouterr()

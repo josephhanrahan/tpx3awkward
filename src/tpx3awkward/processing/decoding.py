@@ -1,11 +1,11 @@
-from typing import TypeVar
+from typing import TypeAlias, TypeVar
 
 import numba
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-IA = NDArray[np.uint64]
+IA: TypeAlias = NDArray[np.uint64]
 UnSigned = TypeVar("UnSigned", IA, np.uint64)
 
 
