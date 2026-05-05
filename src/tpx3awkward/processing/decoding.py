@@ -253,6 +253,8 @@ def _ingest_raw_data(data):
         elif matches_nibble(msg, 0x7):
             # Type 5: "command" data (id'd via 0x7 upper nibble)
             # TODO do something with this information!
+            # chip_id = (msg >> 16) & 0xffff
+            # spidr_time = msg & 0xffff
             # if get_block(msg, 8, 56) == 0x71:
             #     tpx3_control_message = get_block(msg, 8, 48)
             #     if tpx3_control_message == 0xA0:
