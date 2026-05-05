@@ -1,11 +1,11 @@
-from typing import TypeVar
+from typing import TypeAlias, TypeVar
 
 import numba
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-IA = NDArray[np.uint64]
+IA: TypeAlias = NDArray[np.uint64]
 UnSigned = TypeVar("UnSigned", IA, np.uint64)
 
 
@@ -252,12 +252,39 @@ def _ingest_raw_data(data):
 
         elif matches_nibble(msg, 0x7):
             # Type 5: "command" data (id'd via 0x7 upper nibble)
-            # TODO handle this!
+            # TODO do something with this information!
+            # chip_id = (msg >> 16) & 0xffff
+            # spidr_time = msg & 0xffff
+            # if get_block(msg, 8, 56) == 0x71:
+            #     tpx3_control_message = get_block(msg, 8, 48)
+            #     if tpx3_control_message == 0xA0:
+            #         # "end of sequential readout"
+            #         pass
+            #     elif tpx3_control_message == 0xB0:
+            #         # "end of data driven readout"
+            #         pass
             msg_run_count += 1
 
-        # else:
-        # print(f"Exception 'Not supported: {msg}'")
-        # raise Exception(f"Not supported: {msg}")
+        elif matches_nibble(msg, 0x5):
+            # Type 6?: SPIDR control packet (id'd via 0x5 upper nibble)
+            # TODO do something with this information!
+            # if get_block(msg, 8, 56) == 0x50:
+            #     packet_count = get_block(msg, 48, 0)
+            # else:
+            #     # (0xf -- open shutter, 0xa -- close shutter, 0xc -- heartbeat)
+            #     spidr_control_type = get_block(msg, 4, 56)
+            #     # timestamp (25ns)
+            #     timestamp = get_block(msg, 34, 12)
+            #     if spidr_control_type == 0xF:
+            #         # "open shutter"
+            #         pass
+            #     elif spidr_control_type == 0xA:
+            #         # "close shutter"
+            #         pass
+            #     elif spidr_control_type == 0xC:
+            #         # "heartbeat"
+            #         pass
+            msg_run_count += 1
 
     # Check if there were no heartbeat messages and adjust for potential SPIDR rollovers
     if heartbeat_msb is None:
