@@ -232,20 +232,24 @@ def _ingest_raw_data(data):
             trigger_count = get_block(msg, 12, 44)
             coarse_timestamp = get_block(msg, 35, 9)
             fine_timestamp = get_block(msg, 4, 5)
-            timestamp_ns = coarse_timestamp * 3.125 + (fine_timestamp * 0.26041666)  # 260.41666 ps
-            # 0xf (15) = TDC1 rise, 0xa (10) = TDC1 fall, 0xe (14) = TDC2 rise, 0xb (11) = TDC2 fall
-            match tdc_type:
-                case 0xF:
-                    tdc_type_string = "TDC1 rise"
-                case 0xA:
-                    tdc_type_string = "TDC1 fall"
-                case 0xE:
-                    tdc_type_string = "TDC2 rise"
-                case 0xB:
-                    tdc_type_string = "TDC2 fall"
+            if fine_timestamp == 0:
+                print("TDC decoding error!")
+            else:
+                timestamp_ns = coarse_timestamp * 3.125 + (fine_timestamp * 0.26041666)  # 260.41666 ps
 
-            print(f"{tdc_type_string} with trigger count {trigger_count} and timestamp of {timestamp_ns} ns")
-            msg_run_count += 1
+                # 0xf (15) = TDC1 rise, 0xa (10) = TDC1 fall, 0xe (14) = TDC2 rise, 0xb (11) = TDC2 fall
+                match tdc_type:
+                    case 0xF:
+                        tdc_type_string = "TDC1 rise"
+                    case 0xA:
+                        tdc_type_string = "TDC1 fall"
+                    case 0xE:
+                        tdc_type_string = "TDC2 rise"
+                    case 0xB:
+                        tdc_type_string = "TDC2 fall"
+
+                print(f"{tdc_type_string} with trigger count {trigger_count} and timestamp of {timestamp_ns} ns")
+                msg_run_count += 1
 
         elif matches_nibble(msg, 0x4):
             # Type 4: global timestap (id'd via 0x4 upper nibble)
