@@ -54,6 +54,7 @@ Changelog = "https://github.com/NSLS-II/tpx3awkward/releases"
 test = [
   "pytest>=9",
   "pytest-cov>=7",
+  "pyyaml",
 ]
 docs = [
   "sphinx>=7.0",
@@ -160,4 +161,4 @@ dev = {features = ["dev"], solve-group = "default"}
 
 [tool.pixi.feature.dev.tasks]
 check = "pre-commit run --all-files"
-tests = "pytest"
+tests = "pytest -v"
