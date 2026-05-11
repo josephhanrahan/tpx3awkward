@@ -141,6 +141,7 @@ ignore = [
   "PLR09",    # Too many <...>
   "PLR2004",  # Magic value used in comparison
   "PLR1714",
+  "PT011", # forces match kwarg for every `pytest.raises` check
 ]
 
 [tool.ruff.lint.per-file-ignores]

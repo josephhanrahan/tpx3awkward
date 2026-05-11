@@ -32,9 +32,9 @@ class Tpx3Config(BaseModel):
     trim_mask: np.ndarray | None = None
 
     # --- Misc. ---
-    file_extension: str
-    add_centroid_cols: bool
-    overwrite: bool
+    file_extension: str = ".parquet"
+    add_centroid_cols: bool = True
+    overwrite: bool = True
     verbose: bool = False
 
     @field_validator("energy_estimation_parameters", mode="before")
@@ -85,9 +85,6 @@ class Tpx3Config(BaseModel):
         defaults = {
             "time_window": 0.3,
             "radius": 3,
-            "file_extension": ".parquet",
-            "add_centroid_cols": True,
-            "overwrite": True,
         }
 
         defaults.update(overrides)
