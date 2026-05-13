@@ -54,6 +54,7 @@ Changelog = "https://github.com/NSLS-II/tpx3awkward/releases"
 test = [
   "pytest>=9",
   "pytest-cov>=7",
+  "pyyaml",
 ]
 docs = [
   "sphinx>=7.0",
@@ -140,6 +141,7 @@ ignore = [
   "PLR09",    # Too many <...>
   "PLR2004",  # Magic value used in comparison
   "PLR1714",
+  "PT011", # forces match kwarg for every `pytest.raises` check
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -160,4 +162,4 @@ dev = {features = ["dev"], solve-group = "default"}
 
 [tool.pixi.feature.dev.tasks]
 check = "pre-commit run --all-files"
-tests = "pytest"
+tests = "pytest -v"

@@ -1,0 +1,18 @@
+{
+  "time_window": 0.3,
+  "radius": 3,
+
+  "estimate_energy": true,
+  "energy_estimation_parameters": "tests/configs/energy_estimation_test_parameters.npy",
+
+  "correct_timewalk": true,
+  "timewalk_b": 167.0,
+  "timewalk_c": -0.016,
+
+  "correct_trim": false,
+
+  "file_extension": ".parquet",
+  "add_centroid_cols": true,
+  "overwrite": true,
+  "verbose": true
+}
