@@ -10,6 +10,69 @@ class Tpx3Config(BaseModel):
 
     This includes clustering, corrections, energy estimations, and output formats.
 
+    Attributes
+    ----------
+    time_window : float
+        Temporal clustering window in microseconds.
+
+    radius : float
+        Spatial clustering radius.
+
+    estimate_energy : bool, default=False
+        Enable energy estimation during processing.
+
+    energy_estimation_parameters : numpy.ndarray | Path | str | None, default=None
+        Energy estimation calibration parameters. May be provided directly as a
+        NumPy array of shape (512, 512, 4) or as a path to a ``.npy`` file
+        containing such an array.
+
+    correct_timewalk : bool, default=False
+        Enable timewalk correction.
+
+    timewalk_b : float | None, default=None
+        Timewalk correction parameter ``b`` from the exp. decay fit.
+
+    timewalk_c : float | None, default=None
+        Timewalk correction parameter ``c`` from the exp. decay fit.
+
+    correct_trim : bool, default=False
+        Enable trim correction.
+
+    trim_mask : numpy.ndarray | Path | str | None, default=None
+        Trim correction mask. May be provided directly as a NumPy
+        array or as a path to a ``.npy`` file.
+
+    file_extension : str, default=".parquet"
+        Output file extension. Must be either ``".h5"`` or ``".parquet"``.
+
+    add_centroid_cols : bool, default=True
+        Whether to include centroid columns in the output dataframe.
+
+    overwrite : bool, default=True
+        Whether existing output files should be overwritten if they already exist in
+        the output directory.
+
+    verbose : bool, default=False
+        Enable verbose logging output.
+
+    Raises
+    ------
+    ValueError
+        Thrown for invalid file paths, unsupported values, and configuration compatability issues.
+    TypeError
+        Thrown when input values don't match the expected type.
+
+    Examples
+    --------
+    Define a Tpx3Config object for a pipeline function call:
+
+    >>> from tpx3awkward import Tpx3Config
+    >>> tpx3config = Tpx3Config(time_window=0.3, radius=3, ..., verbose=False)
+
+    Notes
+    -----
+    Paths provided for ``energy_estimation_parameters`` and
+    ``trim_mask`` are automatically loaded using ``numpy.load()``.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
@@ -32,9 +95,9 @@ class Tpx3Config(BaseModel):
     trim_mask: np.ndarray | None = None
 
     # --- Misc. ---
-    file_extension: str
-    add_centroid_cols: bool
-    overwrite: bool
+    file_extension: str = ".parquet"
+    add_centroid_cols: bool = True
+    overwrite: bool = True
     verbose: bool = False
 
     @field_validator("energy_estimation_parameters", mode="before")
@@ -85,9 +148,6 @@ class Tpx3Config(BaseModel):
         defaults = {
             "time_window": 0.3,
             "radius": 3,
-            "file_extension": ".parquet",
-            "add_centroid_cols": True,
-            "overwrite": True,
         }
 
         defaults.update(overrides)
