@@ -143,3 +143,31 @@ def test_tpx3config_from_defaults_overrides():
 
     assert tpx3config.file_extension == ".h5"
     assert tpx3config.verbose
+
+
+@pytest.mark.parametrize("algorithm", ["legacy", "dbscan", "optics", "agglomerative"])
+def test_clustering_config_round_trip(algorithm):
+    config = Tpx3Config.from_defaults(clustering_algorithm=algorithm, min_samples=4)
+    assert Tpx3Config.model_validate_json(config.model_dump_json()) == config
+    assert config.clustering_algorithm == algorithm
+    assert config.min_samples == 4
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"clustering_algorithm": "unknown"},
+        {"time_window": 0},
+        {"time_window": 0.001},
+        {"time_window": np.nan},
+        {"radius": -1},
+        {"radius": np.inf},
+        {"min_samples": 0},
+        {"min_samples": 2.5},
+        {"min_samples": True},
+        {"clustering_algorithm": "optics", "min_samples": 1},
+    ],
+)
+def test_invalid_clustering_config(overrides):
+    with pytest.raises(ValueError):
+        Tpx3Config.from_defaults(**overrides)

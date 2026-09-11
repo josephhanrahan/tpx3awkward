@@ -41,6 +41,7 @@ dependencies = [
   "pyarrow",
   "tables",
   "pydantic",
+  "scikit-learn>=1.3",
 ]
 
 [project.urls]

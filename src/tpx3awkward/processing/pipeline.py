@@ -81,6 +81,8 @@ def convert_tpx3_binary(
         decoded_df,
         config.time_window,
         config.radius,
+        clustering_algorithm=config.clustering_algorithm,
+        min_samples=config.min_samples,
     )
     # maybe we should put this somewhere else...
     clustered_df.loc[clustered_df["xc"] >= 255.5, "xc"] += 2

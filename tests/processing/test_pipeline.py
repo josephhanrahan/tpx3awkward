@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
 from tpx3awkward import (
@@ -12,11 +13,23 @@ from tpx3awkward import (
     convert_tpx3_files_parallel,
     read_parquet_config,
 )
-from tpx3awkward.processing import raw_as_numpy
+from tpx3awkward.processing import pipeline, raw_as_numpy
 
 RAW_DATA_DIR = Path(__file__).parents[1] / "data/raw/"
 PROC_DATA_DIR = Path(__file__).parents[1] / "data/processed/"
 CONFIG_DIR = Path(__file__).parents[1] / "configs"
+
+
+@pytest.mark.parametrize("algorithm", ["dbscan", "optics", "agglomerative"])
+@pytest.mark.parametrize("use_config", [False, True])
+def test_pipeline_clustering_backends(monkeypatch, algorithm, use_config):
+    decoded = pd.DataFrame({"x": [0, 1, 2], "y": [0, 0, 0], "t": [0, 0, 0], "ToT": [10, 10, 10]})
+    monkeypatch.setattr(pipeline, "decode_tpx3_binary", lambda *_args, **_kwargs: (decoded.copy(), None))
+    options = {"clustering_algorithm": algorithm, "radius": 1.1, "min_samples": 4}
+    kwargs = {"config": Tpx3Config.from_defaults(**options)} if use_config else options
+    result, tdc = convert_tpx3_binary(np.empty(0, dtype=np.uint64), **kwargs)
+    assert result["n"].tolist() == ([3] if algorithm == "agglomerative" else [])
+    assert tdc is None
 
 
 def test_convert_tpx3_binary():

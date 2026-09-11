@@ -2,11 +2,22 @@ import numba
 import numpy as np
 import pandas as pd
 
+from ._clustering import ClusteringAlgorithm, get_cluster_labels, validate_clustering_parameters
+
 TIMESTAMP_VALUE = 1.5625 * 1e-9  # each raw timestamp is 1.5625 nanoseconds
 MICROSECOND = 1e-6
 
 
-def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bool = False):
+def _cluster(
+    df,
+    tw,
+    radius,
+    estimate_energy: bool = False,
+    correct_timewalk: bool = False,
+    *,
+    clustering_algorithm: ClusteringAlgorithm = "legacy",
+    min_samples: int = 2,
+):
     cols = ["t", "x", "y", "ToT", "t"]
     # x, y, ToT, t, energy, t_corr
     col_indices = [0, 1, 2, 3, 0, 0]
@@ -20,10 +31,12 @@ def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bo
 
     tw_ts_ticks = int(tw * MICROSECOND / TIMESTAMP_VALUE)
 
-    events = df[cols].to_numpy(dtype=np.float64)
-    events[:, 0] = np.floor_divide(events[:, 0], tw_ts_ticks)  # Bin timestamps into time windows
-
-    labels = _get_cluster_labels(events, tw_ts_ticks, radius)
+    events = df[cols].to_numpy(dtype=np.float64, copy=True)
+    if clustering_algorithm == "legacy":
+        events[:, 0] = np.floor_divide(events[:, 0], tw_ts_ticks)  # Bin timestamps into time windows
+        labels = _get_cluster_labels(events, tw_ts_ticks, radius)
+    else:
+        labels = get_cluster_labels(df, tw * MICROSECOND / TIMESTAMP_VALUE, radius, clustering_algorithm, min_samples)
 
     return labels, np.array(col_indices), events[:, 1:]
 
@@ -65,10 +78,6 @@ def _group_indices(labels):
     ----------
     labels : np.ndarray
         Array of cluster labels for each event.
-    num_clusters : int
-        Number of unique clusters.
-    max_cluster_size : int
-        Maximum number of events in a single cluster.
 
     Returns
     -------
@@ -76,13 +85,18 @@ def _group_indices(labels):
         A 2D NumPy array of shape (num_clusters, max_cluster_size), where each row corresponds to a cluster
         and contains event indices padded with -1 for unused slots.
     """
-    num_clusters = np.max(labels) + 1  # Assume no noise, all labels are valid clusters
-    max_cluster_size = np.bincount(labels).max()
-    cluster_array = -1 * np.ones((num_clusters, max_cluster_size), dtype=np.int32)
+    valid_labels = labels[labels >= 0]
+    if len(valid_labels) == 0:
+        return np.empty((0, 0), dtype=np.int32)
+    num_clusters = np.max(valid_labels) + 1
+    max_cluster_size = np.bincount(valid_labels).max()
+    cluster_array = np.full((num_clusters, max_cluster_size), -1, dtype=np.int32)
     cluster_counts = np.zeros(num_clusters, dtype=np.int32)
 
     for idx in range(labels.shape[0]):
         cluster_idx = labels[idx]  # Label is directly the cluster ID
+        if cluster_idx < 0:
+            continue
         cluster_array[cluster_idx, cluster_counts[cluster_idx]] = idx
         cluster_counts[cluster_idx] += 1
 
@@ -104,7 +118,7 @@ def _centroid_clusters(
     yc = np.zeros(num_clusters, dtype="float32")
     ToT_max = np.zeros(num_clusters, dtype="uint32")
     ToT_sum = np.zeros(num_clusters, dtype="uint32")
-    n = np.zeros(num_clusters, dtype="ubyte")
+    n = np.zeros(num_clusters, dtype="uint64")
 
     # must always define arrays becuase numba wants identical return signatures
     e_sum = np.zeros(num_clusters, dtype="float32") if estimate_energy else np.empty(0, dtype="float32")
@@ -124,7 +138,7 @@ def _centroid_clusters(
                 xc[cluster_id] += events[event, 0] * events[event, 2]  # x and y centroids by time over threshold
                 yc[cluster_id] += events[event, 1] * events[event, 2]
                 ToT_sum[cluster_id] += events[event, 2]  # calcuate sum
-                n[cluster_id] += np.ubyte(1)  # number of events in cluster
+                n[cluster_id] += 1  # number of events in cluster
 
                 if estimate_energy:
                     e_sum[cluster_id] += events[event, col_indices[4]]
@@ -161,6 +175,9 @@ def _ingest_cent_data(
     # first 6 columns are always included
     key_string = "t,xc,yc,ToT_max,ToT_sum,n"
     rdict = dict(zip(key_string.split(","), data[:6], strict=True))
+    # Preserve the compact historical schema when counts fit in a byte.
+    if not len(data[5]) or data[5].max() <= 255:
+        rdict["n"] = data[5].astype(np.uint8)
 
     if estimate_energy:
         rdict["e_sum"] = data[6]
@@ -173,7 +190,10 @@ def _ingest_cent_data(
 def cluster_decoded_df(
     df: pd.DataFrame,
     tw: float,
-    radius: int,
+    radius: float,
+    *,
+    clustering_algorithm: ClusteringAlgorithm = "legacy",
+    min_samples: int = 2,
 ) -> pd.DataFrame:
     """
     Cluster and centroid a decoded DataFrame.
@@ -185,20 +205,43 @@ def cluster_decoded_df(
         May also include optional columns 'e' and 't_corr'.
     tw : float
         Time window for the clustering algorithm, in microseconds.
-    radius : int,
-        Radius for the clustering algorithm, in pixels.
+    radius : float
+        Distance threshold in spatial-temporal coordinates. Spatial coordinates
+        are in pixels; a time difference of ``tw`` microseconds has unit distance.
+    clustering_algorithm : {"legacy", "dbscan", "optics", "agglomerative"}, default="legacy"
+        Clustering backend. Legacy uses binned time and expects time-sorted input.
+        The other backends use continuous time and accept unsorted input.
+        Agglomerative uses single linkage with a strict distance threshold;
+        OPTICS uses DBSCAN extraction at ``radius``.
+    min_samples : int, default=2
+        Minimum neighborhood size (including the point itself) for DBSCAN and
+        OPTICS. OPTICS requires at least 2. Ignored by the other backends.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with columns ['t', 'xc', 'yc', 'ToT_max', 'ToT_sum', 'n'].
         Includes columns 'e_sum' and/or 't_corr' depending on the input DataFrame.
+        The 'n' dtype is uint8, promoted to uint64 for clusters exceeding 255 hits.
+
+    Notes
+    -----
+    Adds or replaces ``cluster_id`` on the input DataFrame in its original row
+    order. Density-based noise has label -1 and is excluded from the centroids.
+    Clustering uses raw ``t``; optional ``t_corr`` is propagated by centroiding.
     """
+    validate_clustering_parameters(tw, radius, clustering_algorithm, min_samples)
     estimate_energy: bool = "e" in df.columns
     correct_timewalk: bool = "t_corr" in df.columns
 
     cluster_labels, col_indices, events = _cluster(
-        df, tw, radius, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk
+        df,
+        tw,
+        radius,
+        estimate_energy=estimate_energy,
+        correct_timewalk=correct_timewalk,
+        clustering_algorithm=clustering_algorithm,
+        min_samples=min_samples,
     )
     df["cluster_id"] = cluster_labels
     cluster_array = _group_indices(cluster_labels)

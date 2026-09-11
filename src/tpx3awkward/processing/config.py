@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ._clustering import ClusteringAlgorithm, validate_clustering_parameters
 
 
 class Tpx3Config(BaseModel):
@@ -17,6 +19,13 @@ class Tpx3Config(BaseModel):
 
     radius : float
         Spatial clustering radius.
+
+    clustering_algorithm : {"legacy", "dbscan", "optics", "agglomerative"}, default="legacy"
+        Backend used to cluster decoded events before centroiding.
+
+    min_samples : int, default=2
+        Minimum neighborhood size for DBSCAN and OPTICS, including the event
+        itself. OPTICS requires at least 2. Ignored by other backends.
 
     estimate_energy : bool, default=False
         Enable energy estimation during processing.
@@ -83,6 +92,8 @@ class Tpx3Config(BaseModel):
     # --- Clustering ---
     time_window: float
     radius: float
+    clustering_algorithm: ClusteringAlgorithm = "legacy"
+    min_samples: int = Field(default=2, strict=True, ge=1)
 
     # --- Energy estimation ---
     estimate_energy: bool = False
@@ -139,6 +150,7 @@ class Tpx3Config(BaseModel):
 
     @model_validator(mode="after")
     def validate_dependencies(self):
+        validate_clustering_parameters(self.time_window, self.radius, self.clustering_algorithm, self.min_samples)
         if self.estimate_energy and self.energy_estimation_parameters is None:
             raise ValueError("energy_estimation_parameters must be provided when estimate_energy=True")
         if self.correct_timewalk and (self.timewalk_b is None or self.timewalk_c is None):
